@@ -1,11 +1,15 @@
 """Small authentication module used for the DevOps TP N°3."""
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 import time
 from typing import Any
 
 MAX_ATTEMPTS = 3
 LOCKOUT_SECONDS = 300
+PBKDF2_ITERATIONS = 200_000
 
 # username -> stored password value
 users: dict[str, str] = {}
@@ -32,12 +36,27 @@ def _valid_password(password: Any) -> bool:
 
 
 def _hash_password(password: str) -> str:
-    """Prepare the password for storage (simplified version)."""
-    return password
+    """Hash the password with PBKDF2-SHA256 and a random salt."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS
+    )
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}"
 
 
 def _verify_password(password: str, encoded_hash: str) -> bool:
-    return password == encoded_hash
+    try:
+        algo, iterations, salt_hex, digest_hex = encoded_hash.split("$")
+        if algo != "pbkdf2_sha256":
+            return False
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+        candidate = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt, int(iterations)
+        )
+    except ValueError:
+        return False
+    return hmac.compare_digest(candidate, expected)
 
 
 def register_user(username: Any, password: Any) -> bool:
@@ -66,7 +85,7 @@ def authenticate(username: Any, password: Any) -> dict[str, Any]:
     encoded_hash = users.get(username)
 
     if encoded_hash is None:
-        return {"success": False, "message": "Utilisateur inconnu"}
+        return {"success": False, "message": GENERIC_ERROR}
 
     if not _verify_password(password, encoded_hash):
         _record_failure(username, now)
@@ -79,7 +98,7 @@ def authenticate(username: Any, password: Any) -> dict[str, Any]:
 
 def _record_failure(username: str, now: float) -> None:
     attempts[username] = attempts.get(username, 0) + 1
-    if attempts[username] > MAX_ATTEMPTS:
+    if attempts[username] >= MAX_ATTEMPTS:
         blocked_until[username] = now + LOCKOUT_SECONDS
 
 
