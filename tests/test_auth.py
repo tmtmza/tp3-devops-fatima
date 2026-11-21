@@ -87,3 +87,27 @@ def test_successful_login_clears_previous_failed_attempts():
     result = auth.authenticate("alice", "Alice123!Secure")
     assert result["success"] is True
     assert "alice" not in auth.attempts
+
+
+def test_two_users_with_same_password_have_different_stored_values():
+    # Arrange
+    password = "SamePassword123!"
+
+    # Act
+    assert auth.register_user("dave", password) is True
+    assert auth.register_user("erin", password) is True
+
+    # Assert : le sel aleatoire doit produire deux valeurs differentes
+    assert auth.users["dave"] != auth.users["erin"]
+
+
+def test_username_with_sql_injection_characters_is_rejected():
+    # Arrange
+    malicious_username = "admin'--"
+
+    # Act
+    registered = auth.register_user(malicious_username, "ValidPassword123!")
+
+    # Assert
+    assert registered is False
+    assert malicious_username not in auth.users
